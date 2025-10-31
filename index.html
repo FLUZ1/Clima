@@ -154,7 +154,8 @@
             const dataFim = `${ano}-${mes}-${dia}`;
 
             // --- Proxy para contornar o CORS ---
-            const proxyUrl = 'https://api.allorigins.win/raw?url=';
+            // TENTATIVA FINAL: Usando corsproxy.io sem encodeURIComponent
+            const proxyUrl = 'https://corsproxy.io/?';
 
             async function fetchClimateData(stationCode) {
                 loadingState.style.display = 'block';
@@ -162,24 +163,30 @@
                 dataState.style.display = 'none';
 
                 try {
-                    // 1. Define os URLs da API do INMET (codificados para URL no proxy)
+                    // 1. Define os URLs da API do INMET (SEM codificar para este proxy)
                     const urlDadosDiarios = `https://apitempo.inmet.gov.br/estacao/${dataInicio}/${dataFim}/${stationCode}`;
                     const urlNormalClima = `https://apitempo.inmet.gov.br/estacao/clima/${stationCode}`;
-
-                    // 2. Codifica os URLs para passar como parâmetro no proxy
-                    const encodedUrlDados = encodeURIComponent(urlDadosDiarios);
-                    const encodedUrlNormal = encodeURIComponent(urlNormalClima);
 
                     console.log(`Tentando buscar dados diários de: ${urlDadosDiarios}`);
                     console.log(`Tentando buscar dados normais de: ${urlNormalClima}`);
 
-                    // 3. Busca os dois dados em paralelo usando o proxy
+                    // 2. Função auxiliar para fazer fetch com timeout
+                    const fetchWithTimeout = (url, options = {}, timeout = 10000) => {
+                        return Promise.race([
+                            fetch(url, options),
+                            new Promise((_, reject) =>
+                                setTimeout(() => reject(new Error('Timeout')), timeout)
+                            )
+                        ]);
+                    };
+
+                    // 3. Busca os dois dados em paralelo usando o proxy, com timeout
                     const [responseDiaria, responseNormal] = await Promise.all([
-                        fetch(proxyUrl + encodedUrlDados),
-                        fetch(proxyUrl + encodedUrlNormal)
+                        fetchWithTimeout(proxyUrl + urlDadosDiarios),
+                        fetchWithTimeout(proxyUrl + urlNormalClima)
                     ]);
 
-                    console.log("Respostas brutas:", responseDiaria.status, responseNormal.status);
+                    console.log("Status das respostas:", responseDiaria.status, responseNormal.status);
 
                     if (!responseDiaria.ok || !responseNormal.ok) {
                         throw new Error(`Falha na resposta da rede ou do proxy. Status Diária: ${responseDiaria.status}, Normal: ${responseNormal.status}`);
@@ -187,7 +194,7 @@
 
                     // 4. Processa os dados diários
                     const dadosDiariosText = await responseDiaria.text();
-                    console.log("Dados diários brutos:", dadosDiariosText.substring(0, 200) + "..."); // Log para ver início da resposta
+                    console.log("Dados diários brutos (primeiros 200 caracteres):", dadosDiariosText.substring(0, 200) + "...");
                     let dadosDiarios;
                     try {
                          dadosDiarios = JSON.parse(dadosDiariosText);
@@ -199,7 +206,7 @@
 
                     // 5. Processa a Normal Climatológica
                     const dadosNormalText = await responseNormal.text();
-                    console.log("Dados normais brutos:", dadosNormalText.substring(0, 200) + "..."); // Log para ver início da resposta
+                    console.log("Dados normais brutos (primeiros 200 caracteres):", dadosNormalText.substring(0, 200) + "...");
                     let dadosNormal;
                     try {
                          dadosNormal = JSON.parse(dadosNormalText);
@@ -209,14 +216,11 @@
                          throw new Error("Erro ao parsear dados normais: " + e.message);
                     }
 
-
                     let acumuladoReal = 0;
                     if (dadosDiarios && Array.isArray(dadosDiarios)) {
                         acumuladoReal = dadosDiarios.reduce((acc, dia) => {
                             // 'CHUVA' é o campo de precipitação diária
                             const chuva = dia.CHUVA ? parseFloat(dia.CHUVA) : 0;
-                            // Adiciona log para verificar valor de chuva
-                            // console.log(`Data: ${dia.DT_MEDICAO || dia.data || 'N/A'}, Chuva: ${chuva}`);
                             return acc + chuva;
                         }, 0);
                     } else {
