@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestão do Clima - INMET - Dia 30</title>
+    <title>Gestão do Clima - INMET</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Não precisamos do Google Charts agora -->
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
     <style>
         :root {
             --cor-primaria: #01455C;
@@ -17,6 +17,10 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background-color: var(--cor-fundo);
             color: var(--cor-texto-escuro);
+        }
+        .chart-container {
+            width: 100%;
+            height: 400px; /* Altura fixa para o gráfico */
         }
         .kpi-box {
             background-color: white;
@@ -35,6 +39,9 @@
             font-size: 1.875rem; /* 30px */
             font-weight: 700;
             color: var(--cor-primaria);
+        }
+        .kpi-box-value.secondary {
+             color: var(--cor-secundaria);
         }
         .loader {
             border: 4px solid #f3f3f3; /* Light grey */
@@ -57,7 +64,7 @@
         
         <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
             <h1 class="text-3xl font-bold text-center mb-6" style="color: var(--cor-primaria);">
-                Precipitação - Dia 30/10/2025
+                Gestão do Clima (Pluviometria)
             </h1>
             
             <!-- Seletor de Estação -->
@@ -67,7 +74,7 @@
                         Selecionar Estação Meteorológica (INMET):
                     </label>
                     <select id="station-select" class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
-                        <option value="A701" selected>A701 - Mirante de Santana (SP) (83781)</option>
+                        <option value="A701" selected>A701 - Mirante de Santana (SP)</option>
                         <option value="A739">A739 - Interlagos (SP)</option>
                         <option value="A755">A755 - SESC-Interlagos (SP)</option>
                         <option value="A771">A771 - Barueri (SP)</option>
@@ -75,13 +82,13 @@
                 </div>
             </div>
 
-            <!-- Área de Status: Loading, Erro, Dados -->
+            <!-- Área de Status: Loading, Erro, Gráfico -->
             <div id="status-container" class="mt-6">
                 
                 <!-- 1. Estado de Loading -->
                 <div id="loading-state" class="text-center py-10" style="display: none;">
                     <div class="loader"></div>
-                    <p class="text-lg font-medium text-gray-600">A carregar dados da API do INMET para 30/10/2025...</p>
+                    <p class="text-lg font-medium text-gray-600">A carregar dados da API do INMET...</p>
                     <p class="text-sm text-gray-500">(Isto pode demorar alguns segundos devido ao proxy)</p>
                 </div>
                 
@@ -91,16 +98,27 @@
                     <p class="text-gray-600" id="error-message">Não foi possível buscar os dados da API do INMET.</p>
                 </div>
                 
-                <!-- 3. Estado de Sucesso (Apenas o KPI do dia 30) -->
+                <!-- 3. Estado de Sucesso (Gráfico e KPIs) -->
                 <div id="data-state" style="display: none;">
-                    <div class="grid grid-cols-1 md:grid-cols-1 gap-4 mb-6"> <!-- Apenas uma coluna -->
+                    <!-- KPIs -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                         <div class="kpi-box">
-                            <h3 class="kpi-box-title">Precipitação em 30/10/2025</h3>
-                            <p id="kpi-precipitacao" class="kpi-box-value">0 mm</p>
-                            <p id="kpi-estacao" class="text-sm text-gray-500 mt-2">Estação: A701</p>
+                            <!-- ATUALIZADO: Título do KPI -->
+                            <h3 class="kpi-box-title">Precipitação no Dia (30/10)</h3>
+                            <p id="kpi-real" class="kpi-box-value">0 mm</p>
+                        </div>
+                        <div class="kpi-box">
+                            <h3 class="kpi-box-title">Média Histórica (Mês)</h3>
+                            <p id="kpi-normal" class="kpi-box-value secondary">0 mm</p>
+                        </div>
+                        <div class="kpi-box">
+                            <h3 class="kpi-box-title">Diferença (Dia vs Mês)</h3>
+                            <p id="kpi-diff" class="kpi-box-value">0 mm</p>
                         </div>
                     </div>
                     
+                    <!-- Gráfico -->
+                    <div id="chart_div" class="chart-container"></div>
                 </div>
                 
             </div>
@@ -108,21 +126,38 @@
         </div>
     </div>
 
+    <!-- SCRIPT ATUALIZADO -->
     <script type="text/javascript">
+        // Carrega a biblioteca do Google Charts
+        google.charts.load('current', {'packages':['corechart']});
+        google.charts.setOnLoadCallback(initializeClimatePage);
+
         function initializeClimatePage() {
             const stationSelect = document.getElementById('station-select');
             const loadingState = document.getElementById('loading-state');
             const errorState = document.getElementById('error-state');
             const errorMessage = document.getElementById('error-message');
             const dataState = document.getElementById('data-state');
-            const kpiPrecipitacao = document.getElementById('kpi-precipitacao');
-            const kpiEstacao = document.getElementById('kpi-estacao');
 
-            // --- Data Fixa ---
-            const dataAlvo = "2025-10-30";
+            const kpiReal = document.getElementById('kpi-real');
+            const kpiNormal = document.getElementById('kpi-normal');
+            const kpiDiff = document.getElementById('kpi-diff');
+
+            // --- Definição das Datas ---
+            const hoje = new Date("2025-10-30T12:00:00Z"); // Data fixa para consistência
+
+            const ano = hoje.getFullYear();
+            const mes = (hoje.getMonth() + 1).toString().padStart(2, '0'); // '10'
+            const dia = hoje.getDate().toString().padStart(2, '0');     // '30'
+            const mesNumero = hoje.getMonth(); // 9 (para índice de array)
+
+            // ATUALIZADO: dataInicio e dataFim são agora o *mesmo dia*
+            const dataAlvo = `${ano}-${mes}-${dia}`;
+            const dataInicio = dataAlvo;
+            const dataFim = dataAlvo;
 
             // --- Proxy para contornar o CORS ---
-            const proxyUrl = 'https://corsproxy.io/?';
+            const proxyUrl = 'https://api.allorigins.win/raw?url=';
 
             async function fetchClimateData(stationCode) {
                 loadingState.style.display = 'block';
@@ -130,73 +165,123 @@
                 dataState.style.display = 'none';
 
                 try {
-                    // 1. Define o URL da API do INMET para dados diários (apenas um dia)
-                    const urlDadosDiarios = `https://apitempo.inmet.gov.br/estacao/dia/${dataAlvo}/${stationCode}`;
+                    // 1. Define os URLs da API do INMET
+                    // ATUALIZADO: Este URL agora busca apenas um dia (30/10)
+                    const urlDadosDiarios = `https://apitempo.inmet.gov.br/estacao/${dataInicio}/${dataFim}/${stationCode}`;
+                    // Este URL (Normal Clima) permanece o mesmo, pois precisamos da média *mensal*
+                    const urlNormalClima = `https://apitempo.inmet.gov.br/estacao/clima/${stationCode}`;
 
-                    console.log(`Tentando buscar dados diários de: ${urlDadosDiarios}`);
+                    // 2. Codifica os URLs para passar como parâmetro no proxy
+                    const encodedUrlDados = encodeURIComponent(urlDadosDiarios);
+                    const encodedUrlNormal = encodeURIComponent(urlNormalClima);
 
-                    // 2. Função auxiliar para fazer fetch com timeout
-                    const fetchWithTimeout = (url, options = {}, timeout = 10000) => {
-                        return Promise.race([
-                            fetch(url, options),
-                            new Promise((_, reject) =>
-                                setTimeout(() => reject(new Error('Timeout')), timeout)
-                            )
-                        ]);
-                    };
+                    // 3. Busca os dois dados em paralelo usando o novo proxy
+                    const [responseDiaria, responseNormal] = await Promise.all([
+                        fetch(proxyUrl + encodedUrlDados),
+                        fetch(proxyUrl + encodedUrlNormal)
+                    ]);
 
-                    // 3. Busca os dados usando o proxy, com timeout
-                    const responseDiaria = await fetchWithTimeout(proxyUrl + urlDadosDiarios);
-
-                    console.log("Status da resposta:", responseDiaria.status);
-
-                    if (!responseDiaria.ok) {
-                        throw new Error(`Falha na resposta da rede ou do proxy. Status: ${responseDiaria.status}`);
+                    if (!responseDiaria.ok || !responseNormal.ok) {
+                        throw new Error(`Falha na resposta da rede ou do proxy. Status Diária: ${responseDiaria.status}, Normal: ${responseNormal.status}`);
                     }
 
                     // 4. Processa os dados diários
-                    const dadosDiariosText = await responseDiaria.text();
-                    console.log("Dados diários brutos (primeiros 200 caracteres):", dadosDiariosText.substring(0, 200) + "...");
+                    const dadosDiariosText = await responseDiaria.text(); 
                     let dadosDiarios;
                     try {
-                         dadosDiarios = JSON.parse(dadosDiariosText);
+                          dadosDiarios = JSON.parse(dadosDiariosText);
                     } catch (e) {
-                         console.error("Erro ao parsear JSON diário:", e);
-                         console.error("Texto recebido:", dadosDiariosText);
-                         throw new Error("Erro ao parsear dados diários: " + e.message);
+                          console.error("Erro ao parsear JSON diário:", dadosDiariosText);
+                          throw new Error("Erro ao parsear dados diários: " + e.message);
                     }
 
-                    // 5. Procura a precipitação para a data exata
-                    let precipitacao = 0;
-                    let dadosEncontrados = false;
-                    if (Array.isArray(dadosDiarios)) {
-                        const dadosDoDia = dadosDiarios.find(dia => dia.DT_MEDICAO === dataAlvo); // Verifica o campo de data
-                        if (dadosDoDia && dadosDoDia.CHUVA !== undefined) {
-                            precipitacao = parseFloat(dadosDoDia.CHUVA) || 0;
-                            dadosEncontrados = true;
-                        }
+                    // 5. Processa a Normal Climatológica
+                    const dadosNormalText = await responseNormal.text(); 
+                    let dadosNormal;
+                    try {
+                          dadosNormal = JSON.parse(dadosNormalText);
+                    } catch (e) {
+                          console.error("Erro ao parsear JSON normal:", dadosNormalText);
+                          throw new Error("Erro ao parsear dados normais: " + e.message);
+                    }
+
+
+                    let acumuladoReal = 0;
+                    if (dadosDiarios && Array.isArray(dadosDiarios)) {
+                        // Como buscamos só um dia, o reduce vai somar apenas o item [0]
+                        acumuladoReal = dadosDiarios.reduce((acc, dia) => {
+                            const chuva = dia.CHUVA ? parseFloat(dia.CHUVA) : 0;
+                            return acc + chuva;
+                        }, 0);
                     } else {
-                        console.warn("Dados diários não são um array:", dadosDiarios);
+                        console.warn("Dados diários não são um array ou são nulos:", dadosDiarios);
+                        throw new Error("Formato inesperado para dados diários.");
                     }
 
-                    if (!dadosEncontrados) {
-                        console.warn(`Dados para a data ${dataAlvo} não encontrados ou não contêm precipitação para a estação ${stationCode}.`);
-                        precipitacao = 0; // Define como 0 se não encontrar
+                    let normalClimatologica = 0;
+                    if (dadosNormal && Array.isArray(dadosNormal) && dadosNormal.length > mesNumero) {
+                        const dadosDoMes = dadosNormal[mesNumero];
+                        normalClimatologica = dadosDoMes?.precipitacao_total ? parseFloat(dadosDoMes.precipitacao_total) : 0;
+                    } else {
+                        console.warn("Dados normais não são um array, são nulos ou não têm dados para o mês.", dadosNormal, mesNumero);
+                        throw new Error("Formato inesperado ou dados ausentes para a normal climatológica.");
                     }
 
-                    console.log(`Precipitação em ${dataAlvo} para estação ${stationCode}:`, precipitacao);
+                    // 6. Desenha o gráfico e atualiza KPIs
+                    drawChart(acumuladoReal, normalClimatologica);
 
-                    // 6. Atualiza KPI e exibe estado de sucesso
-                    kpiPrecipitacao.textContent = `${precipitacao.toFixed(1)} mm`;
-                    kpiEstacao.textContent = `Estação: ${stationCode}`;
                     loadingState.style.display = 'none';
                     dataState.style.display = 'block';
 
                 } catch (error) {
-                    console.error("Erro final ao buscar dados do INMET para o dia 30:", error);
-                    errorMessage.textContent = `Erro: ${error.message}. A API do INMET ou o proxy podem estar indisponíveis. Verifique o console do navegador (F12).`;
+                    console.error("Erro ao buscar dados do INMET:", error);
+                    errorMessage.textContent = `Erro: ${error.message}. A API do INMET ou o proxy podem estar indisponíveis.`;
                     loadingState.style.display = 'none';
                     errorState.style.display = 'block';
+                }
+            }
+
+            function drawChart(real, normal) {
+                const data = google.visualization.arrayToDataTable([
+                    ['Fonte', 'Precipitação (mm)', { role: 'style' }],
+                    // ATUALIZADO: Label do gráfico
+                    [`Precipitação no Dia (${dataFim})`, real, 'color: #01455C'], 
+                    ['Média Histórica (Mês)', normal, 'color: #9FC419'] 
+                ]);
+
+                const options = {
+                    // ATUALIZADO: Título do gráfico
+                    title: `Precipitação no Dia (${dataFim}) vs. Média Histórica Mensal`,
+                    chartArea: { width: '80%', height: '75%' },
+                    hAxis: {
+                        title: 'Fonte de Dados',
+                        minValue: 0
+                    },
+                    vAxis: {
+                        title: 'Precipitação (mm)'
+                    },
+                    legend: { position: 'none' },
+                    animation:{
+                        duration: 1000,
+                        easing: 'out',
+                        startup: true
+                    }
+                };
+
+                const chart = new google.visualization.BarChart(document.getElementById('chart_div'));
+                chart.draw(data, options);
+
+                // Atualiza KPIs
+                const diff = real - normal;
+                kpiReal.textContent = `${real.toFixed(1)} mm`;
+                kpiNormal.textContent = `${normal.toFixed(1)} mm`;
+                kpiDiff.textContent = `${diff.toFixed(1)} mm`;
+
+                if (diff > 0) {
+                    kpiDiff.style.color = '#dc2626'; // Vermelho (mais chuva que o normal)
+                    kpiDiff.textContent = `+${diff.toFixed(1)} mm`;
+                } else {
+                    kpiDiff.style.color = '#16a34a'; // Verde (menos chuva que o normal)
                 }
             }
 
@@ -208,9 +293,6 @@
             // Busca os dados da estação padrão ao carregar
             fetchClimateData(stationSelect.value);
         }
-
-        // Inicializa a página quando o carregamento estiver completo
-        document.addEventListener('DOMContentLoaded', initializeClimatePage);
     </script>
 </body>
 </html>
